@@ -1,6 +1,6 @@
 """Base class for decision trees with a scikit-learn like API."""
 from abc import ABC, abstractmethod
-
+import numpy as np
 
 class BaseDecisionTree(ABC):
     """Skeleton shared by every tree variant (classification, regression, ...).
@@ -81,7 +81,37 @@ class BaseDecisionTree(ABC):
         Returns:
             BaseDecisionTree: ``self`` (the fitted estimator).
         """
-        raise NotImplementedError("TODO: implement fit")
+        # max_depth must be None, 0, or a positive integer
+        if self.max_depth is not None and (not isinstance(self.max_depth, int) or self.max_depth < 0):
+                raise ValueError("max_depth must be None, 0, or a positive integer.")
+        
+        # min_samples_split must be an integer >= 2
+        if not isinstance(self.min_samples_split, int) or self.min_samples_split < 2:
+            raise ValueError("min_samples_split must be an integer >= 2.")
+        
+        # criterion must be one of the valid criteria defined in the subclass
+        valid_criteria = getattr(self, "_valid_criteria", [])
+        if valid_criteria is not None and self.criterion not in valid_criteria:
+            raise ValueError(f"criterion must be one of {valid_criteria}.")
+
+        # Convert X and y to arrays
+        X = np.asarray(X)
+        y = np.asarray(y)
+
+        # Check that X and y have the same number of samples
+        if X.ndim != 2: # X with 2 dimensions (samples, features)
+            raise ValueError("X must be a 2D array.")
+        if y.ndim != 1: # y with 1 dimension (targets)
+            raise ValueError("y must be a 1D array.")
+        if X.shape[0] != y.shape[0]: # Check that the number of samples in X and y are the same
+            raise ValueError("X and y must have the same number of samples.")
+        if X.shape[0] == 0 or X.shape[1] == 0: # Check that training data has at least one sample and one feature
+            raise ValueError("X must have at least one sample and one feature.")
+
+        # Build the tree
+        self.root = self._build_tree(X, y, depth=0)
+
+        return self
 
     def predict(self, X):
         """Predict a target for each row of ``X``.
@@ -98,7 +128,31 @@ class BaseDecisionTree(ABC):
         Returns:
             array, shape (n_samples,): Predicted target for every sample.
         """
-        raise NotImplementedError("TODO: implement predict")
+        # The model must be fitted before making predictions
+        if self.root is None:
+            raise ValueError("The model has not been fitted yet. Please call 'fit' before 'predict'.")
+
+        # Convert X to an array
+        X = np.asarray(X)
+
+        # Check that X is a 2D array
+        if X.ndim != 2:
+            raise ValueError("X must be a 2D array.")
+
+        # Make predictions
+        predictions = []
+        for sample in X:
+            node = self.root
+            # Walk down the tree until a leaf is reached (left if smaller than or equal to threshold, right otherwise)
+            while not node.is_leaf:
+                if sample[node.feature_index] <= node.threshold:
+                    node = node.left
+                else:
+                    node = node.right
+            # Append the value of the leaf node to predictions if a leaf was reached
+            predictions.append(node.value)
+
+        return np.array(predictions)
 
     def eval(self, X, y):
         """Score the model on ``(X, y)``.
@@ -114,7 +168,22 @@ class BaseDecisionTree(ABC):
             float: Metric value (accuracy for classification, R^2 for
             regression; higher is better).
         """
-        raise NotImplementedError("TODO: implement eval")
+        # Convert y to arrays
+        y = np.asarray(y)
+
+        # Check that y has 1 dimension
+        if y.ndim != 1:
+            raise ValueError("y must be a 1D array.")
+
+        # Make predictions
+        y_pred = self.predict(X)
+
+        # Check that the number of predictions matches the number of true targets
+        if y_pred.shape[0] != y.shape[0]:
+            raise ValueError("The number of predictions does not match the number of true targets.")
+
+        # Compute and return the score
+        return self._score(y, y_pred)
 
     @abstractmethod
     def _build_tree(self, X, y, depth):
@@ -135,6 +204,7 @@ class BaseDecisionTree(ABC):
         Returns:
             Node: Subtree built from this data.
         """
+        pass
 
     @abstractmethod
     def _impurity(self, y):
@@ -150,6 +220,7 @@ class BaseDecisionTree(ABC):
         Returns:
             float: Impurity of ``y`` (0 for a perfectly pure node).
         """
+        pass
 
     @abstractmethod
     def _best_split(self, X, y):
@@ -170,6 +241,7 @@ class BaseDecisionTree(ABC):
             tuple (int, float) or None: ``(feature_index, threshold)`` of the
             best split, or ``None`` if no split improves impurity.
         """
+        pass
 
     @abstractmethod
     def _leaf_value(self, y):
@@ -184,6 +256,7 @@ class BaseDecisionTree(ABC):
         Returns:
             The single predicted value for the leaf.
         """
+        pass
 
     @abstractmethod
     def _score(self, y_true, y_pred):
@@ -198,3 +271,4 @@ class BaseDecisionTree(ABC):
         Returns:
             float: Score (higher is better).
         """
+        pass
